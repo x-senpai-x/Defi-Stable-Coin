@@ -29,8 +29,9 @@ contract DSCEngineTest is Test{
   function testGetUsdValue() public {
     //we need pricefeeds for this which are stored in helper config
     //we can get helperconfig from deploy script byh poroviding it in return
-    
-    uint256 ethAmount=15e18;//15eth
+    //THIS TEST wont work on sepolia since it takes price from real time sepolia testnet which keeps getting updated 
+    //
+    uint256 ethAmount=15e18;//15eth/
     //2000 dollars per eth
     //15e18*2000/eth =30000 e18
     uint256 expectedUsd=3000e18;//problem with 30000
@@ -42,7 +43,7 @@ contract DSCEngineTest is Test{
   function testRevertsIfCollateralZero() public{
     vm.startPrank(USER);
     ERC20Mock(weth).approve(address(dscEngine),AMOUNT_COLLATERAL);
-    vm.expectiRevert(DSCEngine.DSCEngine__AmountMustBeMoreThanZero.selector);
+    vm.expectRevert(DSCEngine.DSCEngine__AmountMustBeMoreThanZero.selector);
     dscEngine.depositCollateral(weth,0);
 
     vm.stopPrank();
