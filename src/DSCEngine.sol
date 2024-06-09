@@ -23,7 +23,6 @@ contract DSCEngine is ReentrancyGuard {
     error DSCEngine__AmountMustBeMoreThanZero();
     error DSCEngine__TokenAddressesAndPriceFeedAddressMustBeOfSameLength();
     error DSCEngine__TokenNotAllowed();
-    error DSCEngine__TokenNotSupported();
     error DSCEngine__TransferFailed();
     error DSCEngine__MintFailed();
     error DSCEngine__BreaksHealthFactor(uint256 healthFactor);
@@ -132,7 +131,7 @@ contract DSCEngine is ReentrancyGuard {
     // overcollateralized then user can burn DSC so that collateral is released and user can redeem collateral anytime
 
     function burnDsc(uint256 amountDscToBurn) public moreThanZero(amountDscToBurn){
-        _burnDSC(amountDscToBurn,msg.sender,msg.sender);
+        _burnDSC(amountDscToBurn,msg.sender,msg.sender);//user is himself burning his dsc to increase health factor
         _revertIfHealthFactorIsBroken(msg.sender);//almost never needed
     }
     //user should get liquidated if value of DSC with user is less than collateral i.e if collateral goes below a certain threshold value
@@ -164,14 +163,19 @@ contract DSCEngine is ReentrancyGuard {
         //we need to ensure that this liquidation doesn't break health factor of liquidator
         _revertIfHealthFactorIsBroken(msg.sender);
     }
-    function getHealthFactor() external {}
+    function getHealthFactor() external view returns (uint256){
+        return(_healthFactor(msg.sender));
+    }
     //health factor is ratio of value of collateral to value of DSC
     //if a user goes below 1 they can get liquidated
 
     function getUsdValue(address token, uint256 amount) public view returns (uint256) {
         AggregatorV3Interface priceFeed = AggregatorV3Interface(s_priceFeed[token]);
         (, int256 price,,,) = priceFeed.latestRoundData();
-        return (uint256(price) * ADDITIONAL_FEED_PRECISION * amount / PRECISION);
+        //price is in 8 decimals
+        //price is the exchange rate of ETH/USD
+        //ie If say 1ETH=1000USD then price=1000*10^8
+        return ((uint256(price) * ADDITIONAL_FEED_PRECISION * amount) / PRECISION);
         /*
         latestRoundData() returns a tuple which includes 
         roundId (uint80):The ID of the round 
@@ -187,8 +191,13 @@ contract DSCEngine is ReentrancyGuard {
         //1000*1e8*1e10*1000/1e18 (amount is 1000)
     }
     function getTokenAmountFromUsd(address token,uint256 usdAmountInWei) public view returns (uint256){
+        //We have 1 DAI=1USD
         //we have ETH/USD price feed i.e 1USD =...
         // (1/priceFeed)*USD price = ETH price
+        //eg $100E18 USD debt   
+        //1/pricefeed = 1/10^8=10^-8
+        //100e18*
+
         AggregatorV3Interface priceFeed = AggregatorV3Interface(s_priceFeed[token]);
         (, int256 price,,,) = priceFeed.latestRoundData();
         return (usdAmountInWei * PRECISION / (uint256(price) * ADDITIONAL_FEED_PRECISION));
@@ -205,6 +214,10 @@ contract DSCEngine is ReentrancyGuard {
         }
         return (totalCollateralValueInUsd);
     }
+    //@param : from collateral removed from whose account
+    //@param : to collateral given to whom 
+    //note this collateral is given to liquidator so it won't be addred to s_collateralDeposited
+    //this function is called usually when a user is liquidated
     function _redeemCollateral(address from , address to ,address tokenCollateralAddress,uint256 amountCollateral) internal moreThanZero(amountCollateral) nonReentrant {        
     //to redeemCollateral HF > 1 after collateral has been removed
         s_collateralDeposited[from][tokenCollateralAddress] -= amountCollateral;
@@ -220,7 +233,9 @@ contract DSCEngine is ReentrancyGuard {
     //@param onBehalfOf: Whose dsc we are paying of 
     //@param dscFrom: where we are getting dsc from
     function _burnDSC (uint256 amountDscToBurn,address onBehalfOf,address dscFrom ) internal {
-        s_DSCMinted[onBehalfOf] -= amountDscToBurn;//the bad user whose health factor is below 1
+        s_DSCMinted[onBehalfOf] -= amountDscToBurn;//since with respect to protocol , the protocol is not lending dsc to the bad user 
+        //so it is removed from his account , it is the same amount that liquidator deposits to pay off the bad user 
+        //and the deposited tokens are then burnt
         bool success = i_dsc.transferFrom(dscFrom,address(this),amountDscToBurn);
         //user borrows dsc from protocol , gives collateral
         //user is then liquidated 
@@ -247,7 +262,7 @@ contract DSCEngine is ReentrancyGuard {
         (uint256 totalDscMinted, uint256 collateralValueInUsd) = _getAccountInformation(user);
         //return (collateralValueInUsd/totalDscMinted); this returns float value
         //shld be always greater than 1 or maybe above a certain number greater than 1
-        uint256 collateralAdjustedForThreshold = collateralValueInUsd * LIQUIDATION_THRESHOLD / LIQUIDATION_PRECISION;
+        return(_calculateHealthFactor(totalDscMinted,collateralValueInUsd));
         //If the user's debt (in terms of the minted DSC) exceeds this adjusted collateral value, 
         //the user's position might be at risk of liquidation.
         //eg say 1000ETH deposited as collateral
@@ -255,7 +270,7 @@ contract DSCEngine is ReentrancyGuard {
         //therefore user can mint upto 500 DSC
         //healthFactor=500/totalDscMinted
         //HF>1 is safe therefore max value of DSC that can be minted is 500
-        return (collateralAdjustedForThreshold * PRECISION / totalDscMinted);
+        
     }
 
     function _revertIfHealthFactorIsBroken(address user) internal view {
@@ -263,6 +278,27 @@ contract DSCEngine is ReentrancyGuard {
         if (userHealthFactor < MIN_HEALTH_FACTOR) {
             revert DSCEngine__BreaksHealthFactor(userHealthFactor);
         }
+
+    }
+    function _calculateHealthFactor(uint256 totalDscMinted,uint256 collateralValueInUsd) internal pure returns (uint256){
+        if(totalDscMinted==0){
+            return type(uint256).max;//accounts for 0 health factor
+        }
+        uint256 collateralAdjustedForThreshHold=collateralValueInUsd*LIQUIDATION_THRESHOLD/LIQUIDATION_PRECISION;
+        return (collateralAdjustedForThreshHold*PRECISION/totalDscMinted);
+    }
+    function getAccountInformation(address user)
+        external
+        view
+        returns (uint256 totalDscMinted, uint256 collateralValueInUsd)
+    {
+        return(_getAccountInformation(user));
+         }
+    function getCollateralTokens() external view returns (address[] memory) {
+        return s_collateralTokens;
+    }
+    function getCollateralBalanceOfUser(address user,address token) external view returns (uint256){
+        return s_collateralDeposited[user][token];
     }
 }
 

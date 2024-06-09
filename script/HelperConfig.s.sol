@@ -7,8 +7,8 @@ import {MockV3Aggregator} from "../test/mocks/MockV3Aggregator.sol";
 import { ERC20Mock } from "@chainlink/contracts/src/v0.8/vendor/openzeppelin-solidity/v4.8.0/contracts/mocks/ERC20Mock.sol";
 contract HelperConfig is Script{
   uint8 public constant DECIMALS = 8;
-  int256 public constant ETH_USD_PRICE = 200e8;
-  int256 public constant BTC_USD_PRICE = 100e8;
+  int256 public constant ETH_USD_PRICE = 2000e8;//we choose this on our anvil chain 
+  int256 public constant BTC_USD_PRICE = 1000e8;
   uint256 public constant DEFAULT_ANVIL_PRIVATE_KEY=0xac0974bec39a17e36ba4a6b4d238ff944bacb478cbed5efcae784d7bf4f2ff80;
   //weth is ERC20 version of ETHereum
   struct NetworkConfig {
