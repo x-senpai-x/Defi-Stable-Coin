@@ -3,6 +3,8 @@
 /*
 This contract is just the token DSC stableCoin . Contract meant to be governed by DSCEngine . 
 This contract is just an ERC20 implementation of our stablecoin System*/
+
+
 pragma solidity ^0.8.20;
 
 import {ERC20Burnable, ERC20} from "@openzeppelin/contracts/token/ERC20/extensions/ERC20Burnable.sol";
